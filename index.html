@@ -480,7 +480,7 @@ async function doLogin(){
         errEl.textContent=left>0?`Incorrect PIN. ${left} attempt${left!==1?'s':''} left.`:'Too many failed attempts. Locked for 15 min.';
         errEl.classList.remove('hidden');btn.disabled=false;btn.innerHTML='Sign In';return;
       }
-      clearLock(em,sid);enterShop(d.name,sid);
+      user={email:em,staffId:sid,name:d.name};clearLock(em,sid);enterShop(d.name,sid);
     }
   }catch(e){errEl.textContent='Connection error. Please try again.';errEl.classList.remove('hidden');}
   btn.disabled=false;btn.innerHTML='Sign In';
