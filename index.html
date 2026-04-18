@@ -788,23 +788,37 @@ async function placeOrder(){
   const total=items.reduce((s,i)=>s+i.sub,0);
   const ord={email:user.email,name:user.name,sid:user.staffId,pt,payMethod,items,total,mk:monthKey(),weekKey:weekKey(),date:new Date().toISOString()};
   saveLocalOrder(ord);
+
+  let emailSent=false;
   if(!isDemo()){
-    try{await apiFetch({action:'saveOrder',order:ord});}
-    catch(e){console.warn('Sync failed',e);}
+    try{
+      const res=await apiFetch({action:'saveOrder',order:ord});
+      emailSent=res&&res.success===true;
+    }catch(e){
+      console.warn('Sync failed',e);
+      emailSent=false;
+    }
   }
+
   const spent=pt==='staff'?weeklySpend(user.email):0;
-  buildConfirm(ord,spent,CONFIG.WEEKLY_LIMIT-spent);
+  buildConfirm(ord,spent,CONFIG.WEEKLY_LIMIT-spent,emailSent);
   cart={};updCount();
 }
 
-function buildConfirm(ord,totalSpent,remaining){
+function buildConfirm(ord,totalSpent,remaining,emailSent=false){
   const d=new Date(ord.date);
   const ds=d.toLocaleDateString('en-KE',{weekday:'short',day:'numeric',month:'long',year:'numeric'});
   const ts=d.toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit'});
   const isS=ord.pt==='staff';const wkr=getWeekRange();
   const payLabel=ord.payMethod==='tab'?'Tab':'Cash';
   const subj=isS?`[KO Staff Order] ${ord.name} · KES ${fmt(ord.total)} · ${payLabel} · Week ${wkr}`:`[KO Normal Order] ${ord.name} · KES ${fmt(ord.total)} · ${payLabel} · ${ds}`;
-  qs('cnf-sub').textContent=isDemo()?'Demo mode — emails not sent':'Confirmation sent to you and '+CONFIG.ADMIN_EMAIL;
+  const statusMsg=isDemo()
+    ?'Demo mode — emails not sent'
+    :emailSent
+      ?'✅ Confirmation emailed to you and '+CONFIG.ADMIN_EMAIL
+      :'⚠️ Order saved but email failed — show this screen to the bartender';
+  qs('cnf-sub').textContent=statusMsg;
+  qs('cnf-sub').style.color=(!isDemo()&&!emailSent)?'var(--red)':'var(--gray)';
   const rows=ord.items.map(i=>`<tr><td>${i.name} ${i.var} ×${i.q}</td><td>KES ${fmt(i.sub)}</td></tr>`).join('');
   const totSec=isS
     ?`<div class="ep-totals"><table class="ep-tbl"><tr><td>This order</td><td>KES ${fmt(ord.total)}</td></tr><tr><td>Payment</td><td>${payLabel}</td></tr><tr><td>Week (${wkr}) spend</td><td>KES ${fmt(totalSpent)} / KES ${fmt(CONFIG.WEEKLY_LIMIT)}</td></tr><tr><td><strong>Remaining this week</strong></td><td><strong>KES ${fmt(remaining)}</strong></td></tr></table></div>`
