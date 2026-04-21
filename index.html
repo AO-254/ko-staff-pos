@@ -233,7 +233,7 @@ input,button,textarea,select{font-family:inherit;}
 
 <script>
 const CONFIG={
-  SCRIPT_URL:'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE',
+  SCRIPT_URL:'https://script.google.com/macros/s/AKfycbzpfT_es96QFAXgPwgJaiR1ADBncFJw75kJgVZKHipM8EPr8CZQgIylxYumbKK8Wc6a-w/exec',
   ADMIN_EMAIL:'kobar@africanoriginals.com',
   WEEKLY_LIMIT:2000,
 };
@@ -261,6 +261,41 @@ const CONFIG={
       <div class="fld"><label>PIN</label><input type="password" id="li-pin" placeholder="4-digit PIN" maxlength="4" onkeydown="if(event.key==='Enter')doLogin()"></div>
       <button class="btn-mod" id="login-btn" onclick="doLogin()">Sign In</button>
       <div id="li-err" class="err hidden"></div>
+      <button class="btn-sec" style="margin-top:6px;font-size:12px;opacity:.7;" onclick="openForgotPIN()">Forgot PIN?</button>
+    </div>
+  </div>
+</div>
+
+<!-- FORGOT PIN -->
+<div id="s-forgot" class="hidden">
+  <div class="page-wrap">
+    <div class="modal-card">
+      <div style="text-align:center;margin-bottom:1.5rem;">
+        <div style="width:56px;height:56px;background:var(--blue);border-radius:14px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;color:white;font-size:17px;font-weight:700;line-height:1.2;">KO<br>BAR</div>
+        <h2 style="font-size:18px;font-weight:700;color:var(--blue);">Reset PIN</h2>
+        <p style="font-size:12px;color:var(--gray);margin-top:3px;">A 6-digit code will be sent to your email</p>
+      </div>
+
+      <!-- Step 1: email + staff ID -->
+      <div id="fp-step1">
+        <div class="fld"><label>Email Address</label><input type="email" id="fp-email" placeholder="you@africanoriginals.com"></div>
+        <div class="fld"><label>Staff ID</label><input type="text" id="fp-sid" placeholder="e.g. AO001" style="text-transform:uppercase"></div>
+        <button class="btn-mod" id="fp-send-btn" onclick="requestReset()">Send Reset Code</button>
+        <div id="fp-err" class="err hidden"></div>
+      </div>
+
+      <!-- Step 2: enter OTP (hidden until code is sent) -->
+      <div id="fp-step2" class="hidden">
+        <div style="background:var(--teal-lt);color:var(--teal);border-radius:8px;padding:10px 12px;font-size:12px;margin-bottom:14px;line-height:1.6;">
+          Code sent! Check your email — it expires in <strong>15 minutes</strong>.
+        </div>
+        <div class="fld"><label>6-Digit Reset Code</label><input type="text" id="fp-otp" placeholder="e.g. 482910" maxlength="6" inputmode="numeric" onkeydown="if(event.key==='Enter')verifyOTP()"></div>
+        <button class="btn-mod" id="fp-verify-btn" onclick="verifyOTP()">Verify Code</button>
+        <button class="btn-sec" style="font-size:12px;margin-top:6px;" onclick="fpResend()">Resend Code</button>
+        <div id="fp-otp-err" class="err hidden"></div>
+      </div>
+
+      <button class="btn-sec" style="margin-top:8px;font-size:12px;opacity:.7;" onclick="show('s-login')">← Back to Login</button>
     </div>
   </div>
 </div>
@@ -449,7 +484,7 @@ let pinState={mode:null,buf:'',newPin:''}, activeKP='sp';
 
 const qs=id=>document.getElementById(id);
 const isDemo=()=>CONFIG.SCRIPT_URL==='YOUR_APPS_SCRIPT_WEB_APP_URL_HERE';
-const SCREENS=['s-loading','s-login','s-setpin','s-changepin','s-home','s-shop','s-cart','s-stock','s-conf'];
+const SCREENS=['s-loading','s-login','s-forgot','s-setpin','s-changepin','s-home','s-shop','s-cart','s-stock','s-conf'];
 function show(id){SCREENS.forEach(s=>qs(s).classList.toggle('hidden',s!==id));}
 function fmt(n){return Number(n).toLocaleString('en-KE',{minimumFractionDigits:0,maximumFractionDigits:2});}
 
@@ -676,6 +711,89 @@ function cpDigit(d){
   }
 }
 function cpDel(){if(pinState.buf.length>0){pinState.buf=pinState.buf.slice(0,-1);updDots('cd',pinState.buf.length);}}
+
+// ═══════════════════
+// FORGOT PIN
+// ═══════════════════
+function openForgotPIN(){
+  qs('fp-email').value=qs('li-email').value||'';  // pre-fill from login screen
+  qs('fp-sid').value=qs('li-sid').value||'';
+  qs('fp-step1').classList.remove('hidden');
+  qs('fp-step2').classList.add('hidden');
+  qs('fp-err').classList.add('hidden');
+  qs('fp-otp-err').classList.add('hidden');
+  qs('fp-otp').value='';
+  show('s-forgot');
+}
+
+async function requestReset(){
+  const em  = qs('fp-email').value.trim().toLowerCase();
+  const sid = qs('fp-sid').value.trim().toUpperCase();
+  const btn = qs('fp-send-btn');
+  const err = qs('fp-err');
+  if(!em||!sid){err.textContent='Please enter your email and Staff ID.';err.classList.remove('hidden');return;}
+  err.classList.add('hidden');
+  btn.disabled=true; btn.textContent='Sending…';
+  try{
+    if(isDemo()){
+      // Demo mode: just verify user exists and skip to OTP screen with code "123456"
+      const u=BUSERS.find(x=>x.email===em&&x.staffId===sid);
+      if(!u){err.textContent='Email or Staff ID not found.';err.classList.remove('hidden');btn.disabled=false;btn.textContent='Send Reset Code';return;}
+      qs('fp-step1').classList.add('hidden');
+      qs('fp-step2').classList.remove('hidden');
+      // store context for verifyOTP
+      window._fpCtx={email:em,staffId:sid,demo:true,otp:'123456'};
+      return;
+    }
+    const d=await apiFetch({action:'requestReset',email:em,staffId:sid});
+    if(d.error){err.textContent=d.error;err.classList.remove('hidden');}
+    else{
+      window._fpCtx={email:em,staffId:sid,demo:false};
+      qs('fp-step1').classList.add('hidden');
+      qs('fp-step2').classList.remove('hidden');
+    }
+  }catch(e){
+    err.textContent='Could not reach server. Check your connection.';err.classList.remove('hidden');
+  }finally{
+    btn.disabled=false; btn.textContent='Send Reset Code';
+  }
+}
+
+async function fpResend(){
+  // Show step1 again so they can re-trigger
+  qs('fp-step2').classList.add('hidden');
+  qs('fp-step1').classList.remove('hidden');
+  qs('fp-err').classList.add('hidden');
+}
+
+async function verifyOTP(){
+  const otp = qs('fp-otp').value.trim();
+  const btn = qs('fp-verify-btn');
+  const err = qs('fp-otp-err');
+  if(!otp||otp.length!==6){err.textContent='Enter the 6-digit code from your email.';err.classList.remove('hidden');return;}
+  err.classList.add('hidden');
+  btn.disabled=true; btn.textContent='Verifying…';
+  try{
+    const ctx=window._fpCtx;
+    if(!ctx){err.textContent='Session expired. Please start again.';err.classList.remove('hidden');btn.disabled=false;btn.textContent='Verify Code';return;}
+    if(ctx.demo){
+      if(otp!==ctx.otp){err.textContent='Incorrect code. (Demo code is 123456)';err.classList.remove('hidden');btn.disabled=false;btn.textContent='Verify Code';return;}
+    }else{
+      const d=await apiFetch({action:'verifyReset',email:ctx.email,staffId:ctx.staffId,otp});
+      if(!d.success){err.textContent=d.error||'Incorrect or expired code.';err.classList.remove('hidden');btn.disabled=false;btn.textContent='Verify Code';return;}
+    }
+    // OTP valid — go to set-PIN flow to choose a new PIN
+    user={email:ctx.email,staffId:ctx.staffId,name:ctx.name||ctx.email.split('@')[0],role:'staff'};
+    window._fpCtx=null;
+    // Customise the set-PIN screen slightly to indicate it's a reset
+    qs('sp-name').textContent='Reset PIN for '+user.name;
+    openSetPIN();
+  }catch(e){
+    err.textContent='Could not reach server. Check your connection.';err.classList.remove('hidden');
+  }finally{
+    btn.disabled=false; btn.textContent='Verify Code';
+  }
+}
 
 // ACCOUNT
 function openAcct(){qs('acct-overlay').classList.remove('hidden');}
